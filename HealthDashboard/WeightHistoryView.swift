@@ -1,5 +1,4 @@
 import SwiftUI
-import Charts
 import HealthKit
 
 enum WeightHistoryRange: String, CaseIterable, Identifiable {
@@ -17,12 +16,6 @@ enum WeightHistoryRange: String, CaseIterable, Identifiable {
     }
 }
 
-struct DailyWeight: Identifiable {
-    let id = UUID()
-    let date: Date
-    let averageWeight: Double
-}
-
 struct WeightHistoryView: View {
     @ObservedObject var healthManager: HealthManager
     @State private var selectedRange: WeightHistoryRange = .month
@@ -32,36 +25,19 @@ struct WeightHistoryView: View {
     private var aggregatedWeightData: [DailyWeight] {
         let calendar = Calendar.current
         let samples = healthManager.weightHistory
-
-        switch selectedRange {
-        case .week, .month:
-            // Group by day
-            let grouped = Dictionary(grouping: samples) { sample in
-                calendar.startOfDay(for: sample.endDate)
-            }
-
-            return grouped.map { (day, samples) in
-                let avgWeight = samples
-                    .map { $0.quantity.doubleValue(for: .pound()) }
-                    .reduce(0, +) / Double(samples.count)
-                return DailyWeight(date: day, averageWeight: avgWeight)
-            }
-            .sorted { $0.date < $1.date }
-
-        case .halfYear:
-            // Group by week (start of week)
-            let grouped = Dictionary(grouping: samples) { sample in
-                calendar.dateInterval(of: .weekOfYear, for: sample.endDate)?.start ?? sample.endDate
-            }
-
-            return grouped.map { (weekStart, samples) in
-                let avgWeight = samples
-                    .map { $0.quantity.doubleValue(for: .pound()) }
-                    .reduce(0, +) / Double(samples.count)
-                return DailyWeight(date: weekStart, averageWeight: avgWeight)
-            }
-            .sorted { $0.date < $1.date }
+        
+        // Group by day for all ranges to get more granular data points, especially for 6 months
+        let grouped = Dictionary(grouping: samples) { sample in
+            calendar.startOfDay(for: sample.endDate)
         }
+
+        return grouped.map { (day, samples) in
+            let avgWeight = samples
+                .map { $0.quantity.doubleValue(for: .pound()) }
+                .reduce(0, +) / Double(samples.count)
+            return DailyWeight(date: day, averageWeight: avgWeight)
+        }
+        .sorted { $0.date < $1.date }
     }
 
     var yMin: Double {
@@ -74,21 +50,7 @@ struct WeightHistoryView: View {
         return maxWeight + 5
     }
 
-    var xAxisValues: [Date] {
-
-        switch selectedRange {
-        case .week:
-            return aggregatedWeightData.map { $0.date }
-        case .month:
-            return stride(from: 0, to: aggregatedWeightData.count, by: 3).compactMap {
-                aggregatedWeightData.indices.contains($0) ? aggregatedWeightData[$0].date : nil
-            }
-        case .halfYear:
-            return aggregatedWeightData.map { $0.date }
-        }
-    }
-
-    // Computed stats:
+    // Computed stats
     var averageWeight: Double {
         guard !aggregatedWeightData.isEmpty else { return 0 }
         let total = aggregatedWeightData.reduce(0) { $0 + $1.averageWeight }
@@ -105,33 +67,16 @@ struct WeightHistoryView: View {
 
     var body: some View {
         VStack {
-            // Chart near top
-            Chart {
-                ForEach(aggregatedWeightData) { entry in
-                    LineMark(
-                        x: .value("Date", entry.date),
-                        y: .value("Weight (lbs)", entry.averageWeight)
-                    )
-                    .interpolationMethod(.catmullRom)
-                    .foregroundStyle(.blue)
-                    .symbol(Circle())
-                }
-            }
-            .chartXAxis {
-                AxisMarks(values: xAxisValues) { value in
-                    AxisGridLine()
-                    AxisValueLabel(format: .dateTime.day().month())
-                }
-            }
-            .chartYAxis {
-                AxisMarks(position: .leading)
-            }
-            .chartYScale(domain: yMin...yMax)
-            .frame(height: 300)
-            .padding(.horizontal)
+            // Chart card
+            WeightHistoryCard(
+                aggregatedWeightData: aggregatedWeightData,
+                yMin: yMin,
+                yMax: yMax
+            )
+            .padding(.top, 16)
 
-            // Stats in middle
-            HStack(spacing: 24) {
+            // Stats section
+            HStack(spacing: 4) {
                 VStack {
                     Text("Avg Weight")
                         .font(.caption)
@@ -139,6 +84,14 @@ struct WeightHistoryView: View {
                     Text(String(format: "%.1f lbs", averageWeight))
                         .font(.headline)
                 }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.blue.opacity(0.15))
+                )
+                .frame(maxWidth: .infinity)   // <-- stretch equally
+
                 VStack {
                     Text("Min Weight")
                         .font(.caption)
@@ -146,6 +99,14 @@ struct WeightHistoryView: View {
                     Text(String(format: "%.1f lbs", minWeight))
                         .font(.headline)
                 }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.green.opacity(0.15))
+                )
+                .frame(maxWidth: .infinity)   // <-- stretch equally
+
                 VStack {
                     Text("Max Weight")
                         .font(.caption)
@@ -153,13 +114,19 @@ struct WeightHistoryView: View {
                     Text(String(format: "%.1f lbs", maxWeight))
                         .font(.headline)
                 }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.red.opacity(0.15))
+                )
+                .frame(maxWidth: .infinity)   // <-- stretch equally
             }
-            .padding()
+            .padding(.horizontal)
             .frame(maxWidth: .infinity)
-
             Spacer()
 
-            // Picker tabs pinned at bottom
+            // Range picker
             Picker("Range", selection: $selectedRange) {
                 ForEach(WeightHistoryRange.allCases) { range in
                     Text(range.rawValue).tag(range)
