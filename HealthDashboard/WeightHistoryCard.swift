@@ -11,6 +11,7 @@ struct WeightHistoryCard: View {
     let aggregatedWeightData: [DailyWeight]
     let yMin: Double
     let yMax: Double
+    let showWeekRangeInLabel: Bool  // <-- NEW PARAMETER
 
     @State private var selectedDate: Date? = nil
     @State private var selectedWeight: Double? = nil
@@ -35,6 +36,7 @@ struct WeightHistoryCard: View {
                         .foregroundStyle(.blue)
                         .symbol(Circle())
                     }
+
                     if let selectedDate = selectedDate {
                         RuleMark(x: .value("Selected Date", selectedDate))
                             .foregroundStyle(Color(white: 0.6)) // neutral gray
@@ -82,12 +84,18 @@ struct WeightHistoryCard: View {
                 .frame(height: 250)
                 .padding([.horizontal, .bottom])
 
-                // Floating label at top of vertical line
+                // Floating label
                 if let xPos = indicatorXPos,
                    let date = selectedDate,
                    let weight = selectedWeight {
+
+                    // Calculate labelText here as a local var
+                    let labelText = showWeekRangeInLabel
+                        ? "\(weekRange(for: date)) • \(String(format: "%.1f lbs", weight))"
+                        : "\(date.formatted(.dateTime.month().day())) • \(String(format: "%.1f lbs", weight))"
+
                     VStack {
-                        Text("\(date.formatted(.dateTime.month().day())) • \(String(format: "%.1f lbs", weight))")
+                        Text(labelText)
                             .font(.caption)
                             .foregroundColor(.primary)
                             .padding(8)
@@ -98,13 +106,14 @@ struct WeightHistoryCard: View {
                                     .stroke(Color.blue.opacity(0.3), lineWidth: 1)
                             )
                             .fixedSize()
-                            .frame(minWidth: 80)
+                            .frame(minWidth: 100)
                             .clipped()
-                            .animation(nil, value: weight) // no animation lag on text content
+                            .animation(nil, value: weight)
                     }
-                    .position(x: clamp(xPos, min: 40, max: UIScreen.main.bounds.width - 40), y: 30)
+                    .position(x: clamp(xPos, min: 50, max: UIScreen.main.bounds.width - 50), y: 30)
                     .animation(.easeInOut(duration: 0.1), value: xPos)
                 }
+
             }
             .frame(height: 250)
             .padding(.bottom, 10)
@@ -115,7 +124,25 @@ struct WeightHistoryCard: View {
         .padding(.horizontal)
     }
 
-    // Helper to prevent label from going offscreen
+    // MARK: - Helper Functions
+
+    func weekRange(for date: Date) -> String {
+        let calendar = Calendar.current
+        var customCalendar = calendar
+        customCalendar.firstWeekday = 7 // Saturday as start of week
+
+        guard let weekStart = customCalendar.dateInterval(of: .weekOfYear, for: date)?.start else {
+            return date.formatted(.dateTime.month().day())
+        }
+
+        let weekEnd = customCalendar.date(byAdding: .day, value: 6, to: weekStart) ?? date
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+
+        return "\(formatter.string(from: weekStart)) – \(formatter.string(from: weekEnd))"
+    }
+
     func clamp(_ value: CGFloat, min: CGFloat, max: CGFloat) -> CGFloat {
         if value < min { return min }
         if value > max { return max }

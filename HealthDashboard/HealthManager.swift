@@ -7,7 +7,8 @@ class HealthManager: ObservableObject {
     @Published var latestWeight: Double?
     @Published var latestSleepHours: Double?
     @Published var weightHistory: [HKQuantitySample] = []
-    
+    @Published var latestCalories: Double?   // <-- New published property
+
     init() {
         requestAuthorization()
     }
@@ -15,13 +16,16 @@ class HealthManager: ObservableObject {
     private func requestAuthorization() {
         let typesToRead: Set = [
             HKObjectType.quantityType(forIdentifier: .bodyMass)!,
-            HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!
+            HKObjectType.categoryType(forIdentifier: .sleepAnalysis)!,
+            HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)!,
+            HKObjectType.quantityType(forIdentifier: .basalEnergyBurned)!
         ]
 
         healthStore.requestAuthorization(toShare: [], read: typesToRead) { success, error in
             if success {
                 self.fetchLatestWeight()
                 self.fetchLatestSleep()
+                self.fetchTotalCaloriesToday()  // <-- Fetch total calories on success
             } else {
                 print("Authorization failed: \(error?.localizedDescription ?? "Unknown error")")
             }
@@ -69,7 +73,7 @@ class HealthManager: ObservableObject {
 
         healthStore.execute(query)
     }
-    
+
     private func fetchLatestSleep() {
         guard let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return }
 
@@ -125,5 +129,57 @@ class HealthManager: ObservableObject {
         }
 
         healthStore.execute(query)
+    }
+
+    // MARK: - New: Fetch total calories burned today (basal + active)
+
+    func fetchTotalCaloriesToday() {
+        guard
+            let basalType = HKQuantityType.quantityType(forIdentifier: .basalEnergyBurned),
+            let activeType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)
+        else { return }
+
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: Date())
+        let now = Date()
+        let predicate = HKQuery.predicateForSamples(withStart: startOfDay, end: now, options: [])
+
+        let dispatchGroup = DispatchGroup()
+
+        var basalTotal = 0.0
+        var activeTotal = 0.0
+
+        func fetchSum(for type: HKQuantityType, completion: @escaping (Double) -> Void) {
+            let query = HKStatisticsQuery(quantityType: type, quantitySamplePredicate: predicate, options: .cumulativeSum) { _, result, error in
+                guard error == nil else {
+                    print("Error fetching \(type.identifier): \(error!.localizedDescription)")
+                    completion(0)
+                    return
+                }
+                let sum = result?.sumQuantity()?.doubleValue(for: .kilocalorie()) ?? 0
+                completion(sum)
+            }
+            healthStore.execute(query)
+        }
+
+        dispatchGroup.enter()
+        fetchSum(for: basalType) { sum in
+            basalTotal = sum
+            dispatchGroup.leave()
+        }
+
+        dispatchGroup.enter()
+        fetchSum(for: activeType) { sum in
+            activeTotal = sum
+            dispatchGroup.leave()
+        }
+
+        dispatchGroup.notify(queue: .main) {
+            let totalCalories = basalTotal + activeTotal
+            print("Total calories burned today: \(totalCalories) kcal")
+            DispatchQueue.main.async {
+                self.latestCalories = totalCalories
+            }
+        }
     }
 }

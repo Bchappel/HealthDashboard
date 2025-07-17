@@ -25,19 +25,38 @@ struct WeightHistoryView: View {
     private var aggregatedWeightData: [DailyWeight] {
         let calendar = Calendar.current
         let samples = healthManager.weightHistory
-        
-        // Group by day for all ranges to get more granular data points, especially for 6 months
-        let grouped = Dictionary(grouping: samples) { sample in
-            calendar.startOfDay(for: sample.endDate)
-        }
 
-        return grouped.map { (day, samples) in
-            let avgWeight = samples
-                .map { $0.quantity.doubleValue(for: .pound()) }
-                .reduce(0, +) / Double(samples.count)
-            return DailyWeight(date: day, averageWeight: avgWeight)
+        switch selectedRange {
+        case .week, .month:
+            // Group by day (start of day)
+            let grouped = Dictionary(grouping: samples) { sample in
+                calendar.startOfDay(for: sample.endDate)
+            }
+            return grouped.map { (day, samples) in
+                let avgWeight = samples
+                    .map { $0.quantity.doubleValue(for: .pound()) }
+                    .reduce(0, +) / Double(samples.count)
+                return DailyWeight(date: day, averageWeight: avgWeight)
+            }
+            .sorted { $0.date < $1.date }
+
+        case .halfYear:
+            // Group by week (for example, week starting on Saturday)
+            var calendarWithSaturdayStart = calendar
+            calendarWithSaturdayStart.firstWeekday = 7  // 1=Sunday, 7=Saturday
+
+            let grouped = Dictionary(grouping: samples) { sample in
+                calendarWithSaturdayStart.dateInterval(of: .weekOfYear, for: sample.endDate)?.start ?? sample.endDate
+            }
+
+            return grouped.map { (weekStart, samples) in
+                let avgWeight = samples
+                    .map { $0.quantity.doubleValue(for: .pound()) }
+                    .reduce(0, +) / Double(samples.count)
+                return DailyWeight(date: weekStart, averageWeight: avgWeight)
+            }
+            .sorted { $0.date < $1.date }
         }
-        .sorted { $0.date < $1.date }
     }
 
     var yMin: Double {
@@ -71,27 +90,13 @@ struct WeightHistoryView: View {
             WeightHistoryCard(
                 aggregatedWeightData: aggregatedWeightData,
                 yMin: yMin,
-                yMax: yMax
+                yMax: yMax,
+                showWeekRangeInLabel: selectedRange == .halfYear
             )
             .padding(.top, 16)
 
             // Stats section
             HStack(spacing: 4) {
-                VStack {
-                    Text("Avg Weight")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(String(format: "%.1f lbs", averageWeight))
-                        .font(.headline)
-                }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.blue.opacity(0.15))
-                )
-                .frame(maxWidth: .infinity)   // <-- stretch equally
-
                 VStack {
                     Text("Min Weight")
                         .font(.caption)
@@ -104,6 +109,21 @@ struct WeightHistoryView: View {
                 .background(
                     RoundedRectangle(cornerRadius: 12)
                         .fill(Color.green.opacity(0.15))
+                )
+                .frame(maxWidth: .infinity)   // <-- stretch equally
+                
+                VStack {
+                    Text("Avg Weight")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(String(format: "%.1f lbs", averageWeight))
+                        .font(.headline)
+                }
+                .padding(.vertical, 8)
+                .padding(.horizontal, 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.blue.opacity(0.15))
                 )
                 .frame(maxWidth: .infinity)   // <-- stretch equally
 

@@ -34,11 +34,19 @@ struct DashboardView: View {
                             value: healthManager.latestSleepHours.map { String(format: "%.1f hrs", $0) } ?? "—",
                             color: .indigo
                         )
+                        
+                        HealthRowView(
+                            title: "Calories",
+                            value: healthManager.latestCalories.map { String(format: "%.0f kcal", $0) } ?? "—",
+                            color: .orange
+                        )
                     }
+
                     .padding(.horizontal)
                 }
                 .padding(.top)
             }
+            .background(Color(.systemGray3))
             .navigationTitle("")
             .navigationBarHidden(true)
         }
