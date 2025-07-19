@@ -1,19 +1,19 @@
 import SwiftUI
 import Charts
 
-struct WeightHistoryCard: View {
-    let aggregatedWeightData: [DailyMetric]
+struct CalorieHistoryCard: View {
+    let aggregatedCalorieData: [DailyMetric]
     let yMin: Double
     let yMax: Double
-    let showWeekRangeInLabel: Bool
+    let showWeekRangeInLabel: Bool  // <-- NEW
 
     @State private var selectedDate: Date? = nil
-    @State private var selectedValue: Double? = nil
+    @State private var selectedCalories: Double? = nil
     @State private var indicatorXPos: CGFloat? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("")
+            Text("Calories Burned")
                 .font(.headline)
                 .foregroundColor(.primary)
                 .padding(.top)
@@ -21,13 +21,13 @@ struct WeightHistoryCard: View {
 
             ZStack {
                 Chart {
-                    ForEach(aggregatedWeightData) { entry in
+                    ForEach(aggregatedCalorieData) { entry in
                         LineMark(
                             x: .value("Date", entry.date),
-                            y: .value("Weight (lbs)", entry.value)
+                            y: .value("Calories", entry.value)
                         )
                         .interpolationMethod(.catmullRom)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(.orange)
                         .symbol(Circle())
                     }
 
@@ -47,15 +47,15 @@ struct WeightHistoryCard: View {
                                         indicatorXPos = location.x
 
                                         if let date: Date = proxy.value(atX: location.x) {
-                                            if let nearest = aggregatedWeightData.min(by: { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }) {
+                                            if let nearest = aggregatedCalorieData.min(by: { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }) {
                                                 selectedDate = nearest.date
-                                                selectedValue = nearest.value
+                                                selectedCalories = nearest.value
                                             }
                                         }
                                     }
                                     .onEnded { _ in
                                         selectedDate = nil
-                                        selectedValue = nil
+                                        selectedCalories = nil
                                         indicatorXPos = nil
                                     }
                             )
@@ -81,11 +81,11 @@ struct WeightHistoryCard: View {
                 // Floating label
                 if let xPos = indicatorXPos,
                    let date = selectedDate,
-                   let value = selectedValue {
+                   let calories = selectedCalories {
 
                     let labelText = showWeekRangeInLabel
-                        ? "\(weekRange(for: date)) • \(String(format: "%.1f lbs", value))"
-                        : "\(date.formatted(.dateTime.month().day())) • \(String(format: "%.1f lbs", value))"
+                        ? "\(weekRange(for: date)) • \(Int(calories)) kcal"
+                        : "\(date.formatted(.dateTime.month().day())) • \(Int(calories)) kcal"
 
                     VStack {
                         Text(labelText)
@@ -96,17 +96,15 @@ struct WeightHistoryCard: View {
                             .cornerRadius(8)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.blue.opacity(0.3), lineWidth: 1)
+                                    .stroke(Color.orange.opacity(0.3), lineWidth: 1)
                             )
                             .fixedSize()
                             .frame(minWidth: 100)
                             .clipped()
-                            .animation(nil, value: value)
                     }
                     .position(x: clamp(xPos, min: 50, max: UIScreen.main.bounds.width - 50), y: 30)
                     .animation(.easeInOut(duration: 0.1), value: xPos)
                 }
-
             }
             .frame(height: 250)
             .padding(.bottom, 10)
@@ -119,10 +117,16 @@ struct WeightHistoryCard: View {
 
     // MARK: - Helper Functions
 
+    func clamp(_ value: CGFloat, min: CGFloat, max: CGFloat) -> CGFloat {
+        if value < min { return min }
+        if value > max { return max }
+        return value
+    }
+
     func weekRange(for date: Date) -> String {
         let calendar = Calendar.current
         var customCalendar = calendar
-        customCalendar.firstWeekday = 7 // Saturday as start of week
+        customCalendar.firstWeekday = 7 // Saturday start
 
         guard let weekStart = customCalendar.dateInterval(of: .weekOfYear, for: date)?.start else {
             return date.formatted(.dateTime.month().day())
@@ -134,11 +138,5 @@ struct WeightHistoryCard: View {
         formatter.dateFormat = "MMM d"
 
         return "\(formatter.string(from: weekStart)) – \(formatter.string(from: weekEnd))"
-    }
-
-    func clamp(_ value: CGFloat, min: CGFloat, max: CGFloat) -> CGFloat {
-        if value < min { return min }
-        if value > max { return max }
-        return value
     }
 }

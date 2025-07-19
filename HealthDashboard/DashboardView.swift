@@ -7,6 +7,7 @@ struct DashboardView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    // Header
                     HStack {
                         Text("Hello, Braedan")
                             .font(.title2)
@@ -20,6 +21,7 @@ struct DashboardView: View {
                     .padding(.horizontal)
                     .padding(.bottom, 8)
 
+                    // Health Cards
                     VStack(spacing: 12) {
                         NavigationLink(destination: WeightHistoryView(healthManager: healthManager)) {
                             HealthRowView(
@@ -34,14 +36,15 @@ struct DashboardView: View {
                             value: healthManager.latestSleepHours.map { String(format: "%.1f hrs", $0) } ?? "—",
                             color: .indigo
                         )
-                        
-                        HealthRowView(
-                            title: "Calories",
-                            value: healthManager.latestCalories.map { String(format: "%.0f kcal", $0) } ?? "—",
-                            color: .orange
-                        )
-                    }
 
+                        NavigationLink(destination: CalorieHistoryView(healthManager: healthManager)) {
+                            HealthRowView(
+                                title: "Calories",
+                                value: healthManager.latestTotalCalories.map { String(format: "%.0f kcal", $0) } ?? "—",
+                                color: .orange
+                            )
+                        }
+                    }
                     .padding(.horizontal)
                 }
                 .padding(.top)

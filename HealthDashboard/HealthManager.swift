@@ -7,7 +7,8 @@ class HealthManager: ObservableObject {
     @Published var latestWeight: Double?
     @Published var latestSleepHours: Double?
     @Published var weightHistory: [HKQuantitySample] = []
-    @Published var latestCalories: Double?   // <-- New published property
+    
+    @Published var totalCaloriesHistory: [DailyMetric] = []  // Total calories burned per day
 
     init() {
         requestAuthorization()
@@ -25,7 +26,7 @@ class HealthManager: ObservableObject {
             if success {
                 self.fetchLatestWeight()
                 self.fetchLatestSleep()
-                self.fetchTotalCaloriesToday()  // <-- Fetch total calories on success
+                self.fetchTotalCalories(days: 30)
             } else {
                 print("Authorization failed: \(error?.localizedDescription ?? "Unknown error")")
             }
@@ -78,10 +79,9 @@ class HealthManager: ObservableObject {
         guard let sleepType = HKObjectType.categoryType(forIdentifier: .sleepAnalysis) else { return }
 
         let now = Date()
-        let startDate = Calendar.current.date(byAdding: .day, value: -2, to: now)! // last 2 days
+        let startDate = Calendar.current.date(byAdding: .day, value: -2, to: now)!
 
         let predicate = HKQuery.predicateForSamples(withStart: startDate, end: now, options: [])
-
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
 
         let query = HKSampleQuery(
@@ -109,10 +109,8 @@ class HealthManager: ObservableObject {
                 return
             }
 
-            // Filter only the 'asleep' samples
             let asleepSamples = samples.filter { $0.value == asleepValue }
 
-            // Get the most recent asleep sample (they are sorted descending)
             guard let latestSleepSample = asleepSamples.first else {
                 DispatchQueue.main.async {
                     self.latestSleepHours = nil
@@ -120,7 +118,6 @@ class HealthManager: ObservableObject {
                 return
             }
 
-            // Calculate duration in hours for that sample
             let duration = latestSleepSample.endDate.timeIntervalSince(latestSleepSample.startDate) / 3600
 
             DispatchQueue.main.async {
@@ -131,55 +128,92 @@ class HealthManager: ObservableObject {
         healthStore.execute(query)
     }
 
-    // MARK: - New: Fetch total calories burned today (basal + active)
-
-    func fetchTotalCaloriesToday() {
+    func fetchTotalCalories(days: Int = 30) {
         guard
-            let basalType = HKQuantityType.quantityType(forIdentifier: .basalEnergyBurned),
-            let activeType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)
+            let activeEnergyType = HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned),
+            let basalEnergyType = HKQuantityType.quantityType(forIdentifier: .basalEnergyBurned)
         else { return }
 
         let calendar = Calendar.current
-        let startOfDay = calendar.startOfDay(for: Date())
-        let now = Date()
-        let predicate = HKQuery.predicateForSamples(withStart: startOfDay, end: now, options: [])
+        let startDate = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -days, to: Date())!)
+        let endDate = Date()
+
+        let interval = DateComponents(day: 1)
+
+        func createQuery(for type: HKQuantityType, completion: @escaping ([HKStatistics]) -> Void) -> HKStatisticsCollectionQuery {
+            let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
+            let query = HKStatisticsCollectionQuery(
+                quantityType: type,
+                quantitySamplePredicate: predicate,
+                options: .cumulativeSum,
+                anchorDate: startDate,
+                intervalComponents: interval
+            )
+            query.initialResultsHandler = { _, results, error in
+                if let error = error {
+                    print("Error fetching \(type.identifier): \(error.localizedDescription)")
+                    completion([])
+                    return
+                }
+
+                var statsArray = [HKStatistics]()
+                results?.enumerateStatistics(from: startDate, to: endDate) { statistics, _ in
+                    statsArray.append(statistics)
+                }
+                completion(statsArray)
+            }
+            return query
+        }
 
         let dispatchGroup = DispatchGroup()
 
-        var basalTotal = 0.0
-        var activeTotal = 0.0
-
-        func fetchSum(for type: HKQuantityType, completion: @escaping (Double) -> Void) {
-            let query = HKStatisticsQuery(quantityType: type, quantitySamplePredicate: predicate, options: .cumulativeSum) { _, result, error in
-                guard error == nil else {
-                    print("Error fetching \(type.identifier): \(error!.localizedDescription)")
-                    completion(0)
-                    return
-                }
-                let sum = result?.sumQuantity()?.doubleValue(for: .kilocalorie()) ?? 0
-                completion(sum)
-            }
-            healthStore.execute(query)
-        }
+        var basalStats: [HKStatistics] = []
+        var activeStats: [HKStatistics] = []
 
         dispatchGroup.enter()
-        fetchSum(for: basalType) { sum in
-            basalTotal = sum
+        let basalQuery = createQuery(for: basalEnergyType) { stats in
+            basalStats = stats
             dispatchGroup.leave()
         }
 
         dispatchGroup.enter()
-        fetchSum(for: activeType) { sum in
-            activeTotal = sum
+        let activeQuery = createQuery(for: activeEnergyType) { stats in
+            activeStats = stats
             dispatchGroup.leave()
         }
+
+        healthStore.execute(basalQuery)
+        healthStore.execute(activeQuery)
 
         dispatchGroup.notify(queue: .main) {
-            let totalCalories = basalTotal + activeTotal
-            print("Total calories burned today: \(totalCalories) kcal")
-            DispatchQueue.main.async {
-                self.latestCalories = totalCalories
+            var combinedCalories = [DailyMetric]()
+
+            let basalByDate = Dictionary(uniqueKeysWithValues: basalStats.compactMap { stat -> (Date, Double)? in
+                guard let sum = stat.sumQuantity() else { return nil }
+                return (stat.startDate, sum.doubleValue(for: .kilocalorie()))
+            })
+
+            let activeByDate = Dictionary(uniqueKeysWithValues: activeStats.compactMap { stat -> (Date, Double)? in
+                guard let sum = stat.sumQuantity() else { return nil }
+                return (stat.startDate, sum.doubleValue(for: .kilocalorie()))
+            })
+
+            let allDates = Set(basalByDate.keys).union(activeByDate.keys)
+
+            for date in allDates.sorted() {
+                let basalValue = basalByDate[date] ?? 0
+                let activeValue = activeByDate[date] ?? 0
+                let total = basalValue + activeValue
+                combinedCalories.append(DailyMetric(date: date, value: total))
             }
+
+            self.totalCaloriesHistory = combinedCalories
         }
+    }
+
+    // MARK: - Computed Properties
+
+    var latestTotalCalories: Double? {
+        totalCaloriesHistory.last?.value
     }
 }

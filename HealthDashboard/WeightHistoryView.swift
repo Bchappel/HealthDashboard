@@ -22,7 +22,7 @@ struct WeightHistoryView: View {
 
     // MARK: - Aggregation logic
 
-    private var aggregatedWeightData: [DailyWeight] {
+    private var aggregatedWeightData: [DailyMetric] {
         let calendar = Calendar.current
         let samples = healthManager.weightHistory
 
@@ -36,14 +36,14 @@ struct WeightHistoryView: View {
                 let avgWeight = samples
                     .map { $0.quantity.doubleValue(for: .pound()) }
                     .reduce(0, +) / Double(samples.count)
-                return DailyWeight(date: day, averageWeight: avgWeight)
+                return DailyMetric(date: day, value: avgWeight)
             }
             .sorted { $0.date < $1.date }
 
         case .halfYear:
-            // Group by week (for example, week starting on Saturday)
+            // Group by week (start on Saturday)
             var calendarWithSaturdayStart = calendar
-            calendarWithSaturdayStart.firstWeekday = 7  // 1=Sunday, 7=Saturday
+            calendarWithSaturdayStart.firstWeekday = 7
 
             let grouped = Dictionary(grouping: samples) { sample in
                 calendarWithSaturdayStart.dateInterval(of: .weekOfYear, for: sample.endDate)?.start ?? sample.endDate
@@ -53,36 +53,41 @@ struct WeightHistoryView: View {
                 let avgWeight = samples
                     .map { $0.quantity.doubleValue(for: .pound()) }
                     .reduce(0, +) / Double(samples.count)
-                return DailyWeight(date: weekStart, averageWeight: avgWeight)
+                return DailyMetric(date: weekStart, value: avgWeight)
             }
             .sorted { $0.date < $1.date }
         }
     }
 
+    // MARK: - Y Axis Bounds
+
     var yMin: Double {
-        guard let minWeight = aggregatedWeightData.min(by: { $0.averageWeight < $1.averageWeight })?.averageWeight else { return 0 }
-        return minWeight - 5
+        guard let min = aggregatedWeightData.min(by: { $0.value < $1.value })?.value else { return 0 }
+        return min - 5
     }
 
     var yMax: Double {
-        guard let maxWeight = aggregatedWeightData.max(by: { $0.averageWeight < $1.averageWeight })?.averageWeight else { return 200 }
-        return maxWeight + 5
+        guard let max = aggregatedWeightData.max(by: { $0.value < $1.value })?.value else { return 200 }
+        return max + 5
     }
 
-    // Computed stats
+    // MARK: - Computed Stats
+
     var averageWeight: Double {
         guard !aggregatedWeightData.isEmpty else { return 0 }
-        let total = aggregatedWeightData.reduce(0) { $0 + $1.averageWeight }
+        let total = aggregatedWeightData.reduce(0) { $0 + $1.value }
         return total / Double(aggregatedWeightData.count)
     }
 
     var minWeight: Double {
-        aggregatedWeightData.min(by: { $0.averageWeight < $1.averageWeight })?.averageWeight ?? 0
+        aggregatedWeightData.min(by: { $0.value < $1.value })?.value ?? 0
     }
 
     var maxWeight: Double {
-        aggregatedWeightData.max(by: { $0.averageWeight < $1.averageWeight })?.averageWeight ?? 0
+        aggregatedWeightData.max(by: { $0.value < $1.value })?.value ?? 0
     }
+
+    // MARK: - Body
 
     var body: some View {
         VStack {
@@ -97,53 +102,13 @@ struct WeightHistoryView: View {
 
             // Stats section
             HStack(spacing: 4) {
-                VStack {
-                    Text("Min Weight")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(String(format: "%.1f lbs", minWeight))
-                        .font(.headline)
-                }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.green.opacity(0.15))
-                )
-                .frame(maxWidth: .infinity)   // <-- stretch equally
-                
-                VStack {
-                    Text("Avg Weight")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(String(format: "%.1f lbs", averageWeight))
-                        .font(.headline)
-                }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.blue.opacity(0.15))
-                )
-                .frame(maxWidth: .infinity)   // <-- stretch equally
-
-                VStack {
-                    Text("Max Weight")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(String(format: "%.1f lbs", maxWeight))
-                        .font(.headline)
-                }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.red.opacity(0.15))
-                )
-                .frame(maxWidth: .infinity)   // <-- stretch equally
+                statView(title: "Min Weight", value: minWeight, color: .green)
+                statView(title: "Avg Weight", value: averageWeight, color: .blue)
+                statView(title: "Max Weight", value: maxWeight, color: .red)
             }
             .padding(.horizontal)
             .frame(maxWidth: .infinity)
+
             Spacer()
 
             // Range picker
@@ -162,5 +127,24 @@ struct WeightHistoryView: View {
         .onChange(of: selectedRange) { _, newRange in
             healthManager.fetchWeightHistory(days: newRange.days)
         }
+    }
+
+    // MARK: - Helper View
+
+    private func statView(title: String, value: Double, color: Color) -> some View {
+        VStack {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            Text(String(format: "%.1f lbs", value))
+                .font(.headline)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 24)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(color.opacity(0.15))
+        )
+        .frame(maxWidth: .infinity)
     }
 }
