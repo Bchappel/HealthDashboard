@@ -31,11 +31,11 @@ struct DashboardView: View {
                             )
                         }
 
-                        HealthRowView(
-                            title: "Sleep",
-                            value: healthManager.latestSleepHours.map { String(format: "%.1f hrs", $0) } ?? "—",
-                            color: .indigo
-                        )
+//                        HealthRowView(
+//                            title: "Sleep",
+//                            value: healthManager.latestSleepHours.map { String(format: "%.1f hrs", $0) } ?? "—",
+//                            color: .indigo
+//                        )
 
                         NavigationLink(destination: CalorieHistoryView(healthManager: healthManager)) {
                             HealthRowView(
